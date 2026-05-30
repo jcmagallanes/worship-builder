@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { MediaLink } from './MediaEmbed'
 
-export default function SongCard({ song, index, onEdit, onDelete }) {
+export default function SongCard({ song, index, onEdit, onDelete, readOnly = false }) {
   const [expanded, setExpanded] = useState(false)
 
   const {
@@ -113,6 +113,7 @@ export default function SongCard({ song, index, onEdit, onDelete }) {
         </div>
 
         {/* Action buttons */}
+        {!readOnly && (
         <div className="flex flex-col gap-1 shrink-0">
           <button
             onClick={() => onEdit(song)}
@@ -127,6 +128,7 @@ export default function SongCard({ song, index, onEdit, onDelete }) {
             <Trash2 size={15} />
           </button>
         </div>
+        )}
       </div>
 
       {/* Expand toggle */}
