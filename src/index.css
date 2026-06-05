@@ -5,7 +5,9 @@
 @layer base {
   html {
     font-family: 'DM Sans', sans-serif;
+    font-size: 16px;
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
@@ -15,14 +17,12 @@
     overflow-x: hidden;
   }
 
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-[#241e16] text-[#f5f3ef] font-medium px-5 py-3 rounded-xl active:scale-95 transition-all duration-150 touch-manipulation select-none;
+    @apply bg-[#241e16] text-[#f5f3ef] font-semibold px-5 py-3 rounded-xl active:scale-95 transition-all duration-150 touch-manipulation select-none;
   }
 
   .btn-ghost {
@@ -34,88 +34,52 @@
   }
 
   .input-field {
-    @apply w-full bg-[#f5f3ef] border border-black/10 rounded-xl px-4 py-3 text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#241e16]/20 focus:border-[#241e16]/40 transition-all;
+    @apply w-full bg-[#f5f3ef] border border-black/10 rounded-xl px-4 py-3 text-base font-sans focus:outline-none focus:ring-2 focus:ring-[#241e16]/20 focus:border-[#241e16]/40 transition-all;
   }
 
   .tag-praise {
-    @apply bg-orange-50 text-orange-600 border border-orange-200 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wide;
+    @apply bg-orange-50 text-orange-600 border border-orange-200 font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide;
+    font-size: 10px;
   }
 
   .tag-worship {
-    @apply bg-blue-50 text-blue-600 border border-blue-200 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wide;
+    @apply bg-blue-50 text-blue-600 border border-blue-200 font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide;
+    font-size: 10px;
   }
 
   .section-label {
-    @apply text-xs font-semibold uppercase tracking-widest text-[#9c8866] mb-2;
+    @apply font-bold uppercase tracking-widest text-[#9c8866];
+    font-size: 10px;
   }
 }
 
-/* Drag handle cursor */
-.drag-handle {
-  cursor: grab;
-}
-.drag-handle:active {
-  cursor: grabbing;
-}
+/* Drag */
+.drag-handle { cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
 
-/* Modal backdrop */
-.modal-backdrop {
-  animation: fadeIn 0.15s ease;
-}
+/* Modals */
+.modal-backdrop { animation: fadeIn 0.15s ease; }
+.modal-content  { animation: slideUp 0.2s ease; }
 
-.modal-content {
-  animation: slideUp 0.2s ease;
-}
+@keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slideUp { from { transform: translateY(24px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+/* Card */
+.song-card { transition: box-shadow 0.15s ease, opacity 0.15s ease; }
 
-@keyframes slideUp {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-/* Smooth transitions */
-.song-card {
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.song-card:active {
-  transform: scale(0.99);
-}
-
-/* Print styles */
+/* Print */
 @media print {
-  body {
-    background: white !important;
-    color: black !important;
-  }
-  .no-print {
-    display: none !important;
-  }
+  body { background: white !important; color: black !important; }
+  .no-print { display: none !important; }
 }
 
-/* Scrollbar hide for mobile feel */
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
+/* Scrollbar hide */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* YouTube embed responsive */
-.yt-embed {
-  position: relative;
-  padding-bottom: 56.25%;
-  height: 0;
-  overflow: hidden;
-}
-.yt-embed iframe {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  border-radius: 12px;
-}
+/* YouTube embed */
+.yt-embed { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; }
+.yt-embed iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 12px; }
+
+/* iOS safe area */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }

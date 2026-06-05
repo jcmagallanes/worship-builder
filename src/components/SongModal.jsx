@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react'
-import { X, Plus, Trash2, GripVertical, ArrowRight, Music, Youtube, Headphones, Hash } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { X, Plus, Trash2, ArrowRight, Music, Youtube, Headphones, Hash, FileText } from 'lucide-react'
 import { COMMON_KEYS } from '../utils/transposeKey'
 
 const TIME_SIGS = ['4/4', '3/4', '6/8', '2/4', '12/8', '5/4']
+const DRAFT_KEY = 'wsb_song_draft'
 
 function LinkInput({ link, onChange, onRemove }) {
   return (
@@ -51,30 +52,54 @@ function ProgressionRow({ prog, onChange, onRemove }) {
   )
 }
 
+const EMPTY_FORM = {
+  title: '', artist: '', type: 'praise',
+  originalKey: 'G', performKey: 'G',
+  tempo: '', timeSignature: '4/4',
+  chords: '', notes: '',
+  youtubeLinks: [], spotifyLinks: [], progressions: [],
+}
+
 export default function SongModal({ song, onSave, onClose }) {
   const isEdit = !!song?.id
+  const hasDraft = !isEdit && !!localStorage.getItem(DRAFT_KEY)
 
-  const [form, setForm] = useState({
-    title: '',
-    artist: '',
-    type: 'praise',
-    originalKey: 'G',
-    performKey: 'G',
-    tempo: '',
-    timeSignature: '4/4',
-    chords: '',
-    notes: '',
-    youtubeLinks: [],
-    spotifyLinks: [],
-    progressions: [],
-    ...song,
+  const [form, setForm] = useState(() => {
+    if (isEdit) return { ...EMPTY_FORM, ...song }
+    // For new songs, restore draft if exists
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY)
+      if (saved) return JSON.parse(saved)
+    } catch {}
+    return { ...EMPTY_FORM }
   })
 
-  const set = (field, val) => setForm(f => ({ ...f, [field]: val }))
+  const [showDraftBanner, setShowDraftBanner] = useState(hasDraft && !isEdit)
+  const draftSaveTimer = useRef(null)
 
+  // Auto-save draft as user types (debounced 500ms) — only for new songs
+  useEffect(() => {
+    if (isEdit) return
+    clearTimeout(draftSaveTimer.current)
+    draftSaveTimer.current = setTimeout(() => {
+      const hasContent = form.title || form.artist || form.chords || form.notes ||
+        form.progressions?.length > 0 || form.youtubeLinks?.length > 0
+      if (hasContent) {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(form))
+      }
+    }, 500)
+    return () => clearTimeout(draftSaveTimer.current)
+  }, [form, isEdit])
+
+  const clearDraft = () => {
+    localStorage.removeItem(DRAFT_KEY)
+    setShowDraftBanner(false)
+    setForm({ ...EMPTY_FORM })
+  }
+
+  const set = (field, val) => setForm(f => ({ ...f, [field]: val }))
   const keyChanged = form.performKey && form.originalKey && form.performKey !== form.originalKey
 
-  // Links
   const addLink = (type) => {
     const key = type === 'youtube' ? 'youtubeLinks' : 'spotifyLinks'
     set(key, [...(form[key] || []), { id: Date.now(), label: '', url: '' }])
@@ -88,21 +113,26 @@ export default function SongModal({ song, onSave, onClose }) {
     set(key, form[key].filter(l => l.id !== id))
   }
 
-  // Progressions
   const addProg = () => set('progressions', [...(form.progressions || []), { id: Date.now(), label: '', pattern: '' }])
   const updateProg = (id, val) => set('progressions', form.progressions.map(p => p.id === id ? val : p))
   const removeProg = (id) => set('progressions', form.progressions.filter(p => p.id !== id))
 
   const handleSave = () => {
     if (!form.title.trim()) return
+    localStorage.removeItem(DRAFT_KEY)
     onSave({ ...form, id: form.id || Date.now() })
+  }
+
+  const handleClose = () => {
+    // Draft is already auto-saved — just close
+    onClose()
   }
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center modal-backdrop"
       style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
-      onClick={e => e.target === e.currentTarget && onClose()}
+      onClick={e => e.target === e.currentTarget && handleClose()}
     >
       <div className="modal-content bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-3xl max-h-[92dvh] flex flex-col">
         {/* Handle */}
@@ -112,11 +142,25 @@ export default function SongModal({ song, onSave, onClose }) {
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-black/8">
-          <h2 className="font-display font-bold text-lg">{isEdit ? 'Edit Song' : 'Add Song'}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-black/5 rounded-xl">
+          <h2 className="font-sans font-bold text-lg">{isEdit ? 'Edit Song' : 'Add Song'}</h2>
+          <button onClick={handleClose} className="p-2 hover:bg-black/5 rounded-xl">
             <X size={18} />
           </button>
         </div>
+
+        {/* Draft restored banner */}
+        {showDraftBanner && (
+          <div className="mx-5 mt-3 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+            <FileText size={14} className="text-amber-500 shrink-0" />
+            <span className="text-sm text-amber-700 flex-1">Draft restored from last session</span>
+            <button
+              onClick={clearDraft}
+              className="text-xs font-semibold text-amber-600 hover:text-amber-800 underline"
+            >
+              Start fresh
+            </button>
+          </div>
+        )}
 
         {/* Form */}
         <div className="overflow-y-auto flex-1 px-5 py-4 space-y-5">
@@ -137,7 +181,6 @@ export default function SongModal({ song, onSave, onClose }) {
               value={form.artist}
               onChange={e => set('artist', e.target.value)}
             />
-            {/* Type toggle */}
             <div className="flex gap-2">
               <button
                 onClick={() => set('type', 'praise')}
@@ -165,9 +208,9 @@ export default function SongModal({ song, onSave, onClose }) {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-1 block flex items-center gap-1">
+                <label className="text-xs text-gray-500 mb-1 flex items-center gap-1">
                   Perform In
-                  {keyChanged && <span className="text-amber-500 text-xs font-bold">⚠ Changed</span>}
+                  {keyChanged && <span className="text-amber-500 text-xs font-bold ml-1">⚠ Changed</span>}
                 </label>
                 <select
                   className={`input-field ${keyChanged ? 'border-amber-300 bg-amber-50 text-amber-700 font-semibold' : ''}`}
@@ -222,7 +265,6 @@ export default function SongModal({ song, onSave, onClose }) {
               value={form.chords}
               onChange={e => set('chords', e.target.value)}
             />
-            <p className="text-xs text-gray-400">Type chord charts section by section</p>
           </div>
 
           {/* Progressions */}
@@ -230,7 +272,7 @@ export default function SongModal({ song, onSave, onClose }) {
             <div className="section-label flex items-center gap-1.5">
               <Hash size={11} /> Number System / Progressions
             </div>
-            <p className="text-xs text-gray-400 -mt-1 mb-2">Label each section and write the numeric progression (e.g. Intro: 1-4-5-1)</p>
+            <p className="text-xs text-gray-400 -mt-1 mb-2">Label each section and write the numeric progression</p>
             {(form.progressions || []).map(prog => (
               <ProgressionRow
                 key={prog.id}
@@ -306,7 +348,9 @@ export default function SongModal({ song, onSave, onClose }) {
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-black/8 flex gap-3">
-          <button onClick={onClose} className="btn-ghost flex-1">Cancel</button>
+          <button onClick={handleClose} className="btn-ghost flex-1">
+            {isEdit ? 'Cancel' : 'Save Draft & Close'}
+          </button>
           <button
             onClick={handleSave}
             disabled={!form.title.trim()}

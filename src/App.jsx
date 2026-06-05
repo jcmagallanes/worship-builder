@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   DndContext, closestCenter,
   KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -8,13 +8,18 @@ import {
   sortableKeyboardCoordinates, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { Plus, Music, Search, X, Share2, Wifi, WifiOff, Loader2, RefreshCw } from 'lucide-react'
+import {
+  Plus, Search, X, Share2, Loader2, RefreshCw,
+  Presentation, Download, ListMusic, SlidersHorizontal,
+  ChevronDown, Check
+} from 'lucide-react'
 import SongCard from './components/SongCard'
 import SongModal from './components/SongModal'
 import ExportMenu from './components/ExportMenu'
 import ShareModal from './components/ShareModal'
 import ViewOnlyBanner from './components/ViewOnlyBanner'
-import { getSet, subscribeToSet, isSupabaseConfigured } from './utils/supabase'
+import PresentationMode from './components/PresentationMode'
+import { getSet, subscribeToSet } from './utils/supabase'
 
 const STORAGE_KEY = 'worship_set_builder_v2'
 
@@ -78,9 +83,8 @@ const DEMO_SONGS = [
   },
 ]
 
-// ── Parse hash-based routing ──────────────────────────────────
 function parseRoute() {
-  const hash = window.location.hash // e.g. #/set/uuid?edit=token
+  const hash = window.location.hash
   const match = hash.match(/^#\/set\/([a-f0-9-]+)/)
   if (match) {
     const setId = match[1]
@@ -103,6 +107,53 @@ function saveLocal(data) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
 }
 
+// Filter sheet component — slides up from bottom
+function FilterSheet({ filterType, setFilterType, onClose }) {
+  const options = [
+    { id: 'all', label: 'All Songs', emoji: '🎵' },
+    { id: 'praise', label: 'Praise only', emoji: '🔥' },
+    { id: 'worship', label: 'Worship only', emoji: '🕊' },
+  ]
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-white w-full max-w-lg rounded-t-3xl pb-safe">
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-10 h-1 bg-black/15 rounded-full" />
+        </div>
+        <div className="px-4 pb-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-400 px-2 mb-2">Filter by type</p>
+          {options.map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => { setFilterType(opt.id); onClose() }}
+              className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl mb-1 transition-all active:scale-[0.98]"
+              style={{ background: filterType === opt.id ? '#f5f3ef' : 'transparent' }}
+            >
+              <span className="flex items-center gap-3 text-base font-medium text-[#241e16]">
+                <span className="text-xl">{opt.emoji}</span>
+                {opt.label}
+              </span>
+              {filterType === opt.id && <Check size={18} className="text-[#241e16]" />}
+            </button>
+          ))}
+        </div>
+        <div className="px-4 pb-6 pt-2 border-t border-black/6">
+          <button
+            onClick={onClose}
+            className="w-full py-3.5 rounded-2xl bg-[#f5f3ef] text-[#241e16] font-semibold text-base active:scale-[0.98] transition-all"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const route = parseRoute()
   const isSharedView = !!route?.setId
@@ -111,45 +162,34 @@ export default function App() {
   const [songs, setSongs] = useState([])
   const [setTitle, setSetTitle] = useState('Sunday Morning Set')
   const [editingTitle, setEditingTitle] = useState(false)
-  const [shareState, setShareState] = useState(null) // { setId, editToken }
+  const [shareState, setShareState] = useState(null)
   const [modal, setModal] = useState(null)
   const [showShare, setShowShare] = useState(false)
+  const [showExport, setShowExport] = useState(false)
+  const [showFilter, setShowFilter] = useState(false)
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [cloudLoading, setCloudLoading] = useState(false)
   const [cloudError, setCloudError] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
-  const [online, setOnline] = useState(navigator.onLine)
   const [remoteUpdated, setRemoteUpdated] = useState(false)
-
-  // Online status
-  useEffect(() => {
-    const on = () => setOnline(true)
-    const off = () => setOnline(false)
-    window.addEventListener('online', on)
-    window.addEventListener('offline', off)
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
-  }, [])
+  const [presentationIdx, setPresentationIdx] = useState(null)
 
   // Load data
   useEffect(() => {
     if (isSharedView) {
-      // Load from cloud
       setCloudLoading(true)
       getSet(route.setId)
         .then(data => {
           setSongs(data.songs || [])
           setSetTitle(data.title || 'Worship Set')
           setLastUpdated(data.updated_at)
-          if (route.editToken) {
-            setShareState({ setId: route.setId, editToken: route.editToken })
-          }
+          if (route.editToken) setShareState({ setId: route.setId, editToken: route.editToken })
         })
         .catch(e => setCloudError(e.message))
         .finally(() => setCloudLoading(false))
     } else {
-      // Load from local
       const data = loadLocal()
       setSongs(data.songs || DEMO_SONGS)
       setSetTitle(data.setTitle || 'Sunday Morning Set')
@@ -157,7 +197,7 @@ export default function App() {
     }
   }, [])
 
-  // Realtime subscription for shared view
+  // Realtime subscription
   useEffect(() => {
     if (!isSharedView || !route?.setId) return
     const unsub = subscribeToSet(route.setId, (updated) => {
@@ -170,11 +210,9 @@ export default function App() {
     return unsub
   }, [isSharedView])
 
-  // Save local (only for local mode)
+  // Persist local
   useEffect(() => {
-    if (!isSharedView) {
-      saveLocal({ songs, setTitle, shareState })
-    }
+    if (!isSharedView) saveLocal({ songs, setTitle, shareState })
   }, [songs, setTitle, shareState, isSharedView])
 
   const sensors = useSensors(
@@ -184,23 +222,34 @@ export default function App() {
   )
 
   const handleDragEnd = ({ active, over }) => {
-    if (!canEdit) return
-    if (over && active.id !== over.id) {
-      setSongs(s => {
-        const oldIdx = s.findIndex(x => x.id === active.id)
-        const newIdx = s.findIndex(x => x.id === over.id)
-        return arrayMove(s, oldIdx, newIdx)
-      })
-    }
+    if (!canEdit || !over || active.id === over.id) return
+    setSongs(s => {
+      const oi = s.findIndex(x => x.id === active.id)
+      const ni = s.findIndex(x => x.id === over.id)
+      return arrayMove(s, oi, ni)
+    })
   }
 
   const handleSave = (song) => {
-    setSongs(s =>
-      s.find(x => x.id === song.id)
-        ? s.map(x => x.id === song.id ? song : x)
-        : [...s, song]
-    )
+    setSongs(s => s.find(x => x.id === song.id) ? s.map(x => x.id === song.id ? song : x) : [...s, song])
     setModal(null)
+  }
+
+  const handleDuplicate = (song) => {
+    const copy = {
+      ...song,
+      id: Date.now(),
+      title: `${song.title} (copy)`,
+      progressions: (song.progressions || []).map(p => ({ ...p, id: Date.now() + Math.random() })),
+      youtubeLinks: (song.youtubeLinks || []).map(l => ({ ...l, id: Date.now() + Math.random() })),
+      spotifyLinks: (song.spotifyLinks || []).map(l => ({ ...l, id: Date.now() + Math.random() })),
+    }
+    setSongs(s => {
+      const idx = s.findIndex(x => x.id === song.id)
+      const next = [...s]
+      next.splice(idx + 1, 0, copy)
+      return next
+    })
   }
 
   const handleDelete = (id) => {
@@ -215,7 +264,6 @@ export default function App() {
 
   const handleShareStateChange = (state) => {
     setShareState(state)
-    // Update URL to edit link
     if (state?.setId && state?.editToken) {
       window.history.replaceState(null, '', `#/set/${state.setId}?edit=${state.editToken}`)
     }
@@ -243,7 +291,7 @@ export default function App() {
     return (
       <div className="min-h-dvh bg-[#f5f3ef] flex flex-col items-center justify-center gap-3 px-8 text-center">
         <p className="text-4xl">😕</p>
-        <p className="font-display font-bold text-lg">Set not found</p>
+        <p className="font-bold text-lg">Set not found</p>
         <p className="text-sm text-gray-500">{cloudError}</p>
         <a href={window.location.pathname} className="btn-primary mt-2">Go to My Sets</a>
       </div>
@@ -252,28 +300,29 @@ export default function App() {
 
   return (
     <div className="min-h-dvh bg-[#f5f3ef]">
+
       {/* View-only banner */}
       {isSharedView && !canEdit && <ViewOnlyBanner setTitle={setTitle} updatedAt={lastUpdated} />}
 
-      {/* Realtime update toast */}
+      {/* Live update toast */}
       {remoteUpdated && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#241e16] text-white text-xs font-medium px-4 py-2.5 rounded-full flex items-center gap-2 shadow-lg animate-pulse no-print">
-          <RefreshCw size={12} /> Set updated by worship leader
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#241e16] text-white text-sm font-medium px-5 py-3 rounded-full flex items-center gap-2 shadow-xl no-print">
+          <RefreshCw size={14} className="animate-spin" /> Updated by worship leader
         </div>
       )}
 
-      {/* Header */}
-      <header className="bg-white border-b border-black/8 sticky top-0 z-40 no-print">
-        <div className="max-w-2xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="w-8 h-8 bg-[#241e16] rounded-xl flex items-center justify-center shrink-0">
-                <Music size={15} className="text-white" />
-              </div>
+      {/* ── HEADER ──────────────────────────────────────────── */}
+      <header className="bg-white sticky top-0 z-40 no-print" style={{ borderBottom: '1px solid rgba(0,0,0,0.07)' }}>
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-3">
+
+          {/* Row 1: Title + action icons */}
+          <div className="flex items-center justify-between gap-3 mb-3">
+            {/* Set title */}
+            <div className="flex-1 min-w-0">
               {canEdit && editingTitle ? (
                 <input
                   autoFocus
-                  className="font-display font-bold text-base bg-transparent border-b-2 border-[#241e16] outline-none w-48"
+                  className="font-bold text-xl bg-transparent border-b-2 border-[#241e16] outline-none w-full"
                   value={setTitle}
                   onChange={e => setSetTitle(e.target.value)}
                   onBlur={() => setEditingTitle(false)}
@@ -282,88 +331,92 @@ export default function App() {
               ) : (
                 <button
                   onClick={() => canEdit && setEditingTitle(true)}
-                  className="font-display font-bold text-base text-left truncate max-w-[160px]"
+                  className="text-left w-full"
                 >
-                  {setTitle}
+                  <h1 className="font-bold text-xl text-[#241e16] truncate leading-tight">
+                    {setTitle}
+                  </h1>
+                  <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                    <span>{songs.length} songs</span>
+                    {praiseCount > 0 && <span>· 🔥 {praiseCount}</span>}
+                    {worshipCount > 0 && <span>· 🕊 {worshipCount}</span>}
+                    {shareState?.setId && <span className="text-green-500">· ☁ synced</span>}
+                  </p>
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              {/* Online indicator */}
-              <div title={online ? 'Online' : 'Offline'}>
-                {online
-                  ? <Wifi size={14} className="text-green-400" />
-                  : <WifiOff size={14} className="text-amber-400" />
-                }
-              </div>
-              {/* Share button — only in edit/local mode */}
+
+            {/* Icon action buttons */}
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Present */}
+              {songs.length > 0 && (
+                <button
+                  onClick={() => setPresentationIdx(0)}
+                  className="w-10 h-10 flex items-center justify-center rounded-2xl hover:bg-[#f5f3ef] active:scale-90 transition-all"
+                  title="Present"
+                >
+                  <Presentation size={20} className="text-[#241e16]" />
+                </button>
+              )}
+              {/* Share */}
               {canEdit && (
                 <button
                   onClick={() => setShowShare(true)}
-                  className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2.5 rounded-xl border transition-all active:scale-95 ${shareState?.setId ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-black/15 hover:bg-black/3'}`}
+                  className={`w-10 h-10 flex items-center justify-center rounded-2xl active:scale-90 transition-all ${shareState?.setId ? 'text-green-600 bg-green-50' : 'hover:bg-[#f5f3ef] text-[#241e16]'}`}
+                  title="Share"
                 >
-                  <Share2 size={14} />
-                  {shareState?.setId ? 'Shared' : 'Share'}
+                  <Share2 size={20} />
                 </button>
               )}
-              <ExportMenu songs={songs} setTitle={setTitle} />
+              {/* Export */}
+              <ExportMenu songs={songs} setTitle={setTitle} iconOnly />
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="flex items-center gap-3 mt-2">
-            <span className="text-xs text-gray-400">{songs.length} songs</span>
-            {praiseCount > 0 && <span className="tag-praise text-[10px]">🔥 {praiseCount} praise</span>}
-            {worshipCount > 0 && <span className="tag-worship text-[10px]">🕊 {worshipCount} worship</span>}
-            {shareState?.setId && (
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-                ☁ synced
-              </span>
-            )}
+          {/* Row 2: Search + filter */}
+          <div className="flex gap-2">
+            <div className="flex-1 relative">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                className="input-field pl-10 pr-9 h-11"
+                placeholder="Search songs…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 p-1"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setShowFilter(true)}
+              className={`h-11 px-3.5 rounded-xl flex items-center gap-1.5 font-semibold text-sm border transition-all active:scale-95 ${
+                filterType !== 'all'
+                  ? 'bg-[#241e16] text-white border-transparent'
+                  : 'bg-white border-black/10 text-gray-500'
+              }`}
+            >
+              <SlidersHorizontal size={15} />
+              {filterType === 'all' ? 'Filter' : filterType === 'praise' ? '🔥' : '🕊'}
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Main */}
-      <main className="max-w-2xl mx-auto px-4 pt-4 pb-28">
-        {/* Search & Filter */}
-        <div className="flex gap-2 mb-4 no-print">
-          <div className="flex-1 relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              className="input-field pl-9 text-sm"
-              placeholder="Search songs…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <div className="flex gap-1 bg-white border border-black/10 rounded-xl p-1">
-            {['all', 'praise', 'worship'].map(t => (
-              <button
-                key={t}
-                onClick={() => setFilterType(t)}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${filterType === t ? 'bg-[#241e16] text-white' : 'text-gray-400'}`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Song list */}
+      {/* ── SONG LIST ─────────────────────────────────────── */}
+      <main className="max-w-2xl mx-auto px-4 pt-4 pb-32">
         {filteredSongs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="text-4xl mb-3">🎵</div>
-            <p className="font-display font-bold text-lg text-gray-700">
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="text-5xl mb-4">🎵</div>
+            <p className="font-bold text-xl text-gray-700">
               {songs.length === 0 ? 'No songs yet' : 'No songs match'}
             </p>
-            <p className="text-sm text-gray-400 mt-1">
-              {songs.length === 0 ? 'Add your first song to get started' : 'Try a different search or filter'}
+            <p className="text-base text-gray-400 mt-1">
+              {songs.length === 0 ? 'Tap + to add your first song' : 'Try a different search or filter'}
             </p>
           </div>
         ) : (
@@ -374,13 +427,13 @@ export default function App() {
             modifiers={[restrictToVerticalAxis]}
           >
             <SortableContext items={filteredSongs.map(s => s.id)} strategy={verticalListSortingStrategy}>
-              {filteredSongs.map((song, i) => (
+              {filteredSongs.map((song) => (
                 <div key={song.id} className="relative">
                   {deleteConfirm === song.id && (
                     <div className="absolute inset-0 z-10 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-center gap-3 px-4">
-                      <span className="text-sm text-red-600 font-medium">Delete "{song.title}"?</span>
-                      <button onClick={() => handleDelete(song.id)} className="bg-red-500 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">Delete</button>
-                      <button onClick={() => setDeleteConfirm(null)} className="text-sm text-gray-500 font-medium px-3 py-1.5 rounded-lg hover:bg-black/5">Cancel</button>
+                      <span className="text-sm text-red-600 font-semibold">Delete "{song.title}"?</span>
+                      <button onClick={() => handleDelete(song.id)} className="bg-red-500 text-white text-sm font-bold px-4 py-2 rounded-xl active:scale-95">Delete</button>
+                      <button onClick={() => setDeleteConfirm(null)} className="text-sm text-gray-500 font-medium px-3 py-2 rounded-xl hover:bg-black/5">Cancel</button>
                     </div>
                   )}
                   <SongCard
@@ -388,6 +441,8 @@ export default function App() {
                     index={songs.findIndex(s => s.id === song.id)}
                     onEdit={canEdit ? (s) => setModal({ mode: 'edit', song: s }) : null}
                     onDelete={canEdit ? handleDelete : null}
+                    onDuplicate={canEdit ? handleDuplicate : null}
+                    onPresent={(idx) => setPresentationIdx(idx)}
                     readOnly={!canEdit}
                   />
                 </div>
@@ -397,20 +452,25 @@ export default function App() {
         )}
       </main>
 
-      {/* FAB - only in edit mode */}
+      {/* ── BOTTOM FAB ────────────────────────────────────── */}
       {canEdit && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 no-print">
-          <button
-            onClick={() => setModal({ mode: 'add' })}
-            className="flex items-center gap-2 bg-[#241e16] text-white font-semibold px-6 py-3.5 rounded-2xl shadow-2xl shadow-black/30 active:scale-95 transition-all hover:bg-[#3f3526]"
+        <div className="fixed bottom-0 left-0 right-0 z-40 no-print">
+          {/* Safe area gradient */}
+          <div className="bg-gradient-to-t from-[#f5f3ef] via-[#f5f3ef]/95 to-transparent pt-6 pb-6 px-4 flex justify-center"
+            style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
           >
-            <Plus size={18} />
-            Add Song
-          </button>
+            <button
+              onClick={() => setModal({ mode: 'add' })}
+              className="flex items-center gap-2.5 bg-[#241e16] text-white font-bold text-base px-8 py-4 rounded-2xl shadow-2xl shadow-black/25 active:scale-95 transition-all"
+            >
+              <Plus size={20} strokeWidth={2.5} />
+              Add Song
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Modals */}
+      {/* ── MODALS & OVERLAYS ─────────────────────────────── */}
       {modal && (
         <SongModal
           song={modal.song}
@@ -418,6 +478,7 @@ export default function App() {
           onClose={() => setModal(null)}
         />
       )}
+
       {showShare && (
         <ShareModal
           songs={songs}
@@ -425,6 +486,22 @@ export default function App() {
           shareState={shareState}
           onShareStateChange={handleShareStateChange}
           onClose={() => setShowShare(false)}
+        />
+      )}
+
+      {showFilter && (
+        <FilterSheet
+          filterType={filterType}
+          setFilterType={setFilterType}
+          onClose={() => setShowFilter(false)}
+        />
+      )}
+
+      {presentationIdx !== null && songs.length > 0 && (
+        <PresentationMode
+          songs={filteredSongs.length > 0 ? filteredSongs : songs}
+          initialIndex={presentationIdx}
+          onClose={() => setPresentationIdx(null)}
         />
       )}
     </div>

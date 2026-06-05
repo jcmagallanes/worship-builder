@@ -69,7 +69,7 @@ export default function ShareModal({ songs, setTitle, shareState, onShareStateCh
         <div className="flex items-center justify-between px-5 py-3 border-b border-black/8">
           <div className="flex items-center gap-2">
             <Share2 size={16} />
-            <h2 className="font-display font-bold text-lg">Share Set</h2>
+            <h2 className="font-sans font-bold text-lg">Share Set</h2>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-black/5 rounded-xl">
             <X size={18} />

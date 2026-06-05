@@ -2,162 +2,205 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { saveAs } from 'file-saver'
 import * as XLSX from 'xlsx'
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, PageBreak } from 'docx'
+import {
+  Document, Packer, Paragraph, TextRun, HeadingLevel,
+  AlignmentType, PageBreak,
+} from 'docx'
+
+// PDF pt sizes — minimum 16pt (≈ 21px) for readability
+const PT = {
+  title:     28,   // set title
+  songTitle: 20,   // each song title
+  artist:    16,   // artist name
+  body:      16,   // normal text
+  label:     14,   // small caps labels (badge, section)
+  mono:      15,   // chord lines (Courier)
+}
 
 // ─── PDF Export ───────────────────────────────────────────────
 export function exportToPDF(songs, setTitle = 'Worship Set') {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
-  const margin = 15
-  let y = 20
+  const margin = 48
+  const contentW = pageW - margin * 2
+  let y = 52
 
-  // Header
+  const checkPage = (needed = 30) => {
+    if (y + needed > doc.internal.pageSize.getHeight() - 48) {
+      doc.addPage(); y = 52
+    }
+  }
+
+  // ── Set title ──
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(22)
+  doc.setFontSize(PT.title)
   doc.setTextColor(36, 30, 22)
   doc.text(setTitle, margin, y)
-  y += 8
+  y += PT.title * 0.5 + 8
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(120, 100, 80)
-  doc.text(`Generated ${new Date().toLocaleDateString('en-PH', { dateStyle: 'long' })}  •  ${songs.length} songs`, margin, y)
-  y += 6
+  doc.setFontSize(PT.body)
+  doc.setTextColor(130, 110, 90)
+  doc.text(
+    `Generated ${new Date().toLocaleDateString('en-PH', { dateStyle: 'long' })}  •  ${songs.length} song${songs.length !== 1 ? 's' : ''}`,
+    margin, y
+  )
+  y += 16
 
   // Divider
-  doc.setDrawColor(200, 180, 150)
-  doc.setLineWidth(0.3)
+  doc.setDrawColor(200, 185, 160)
+  doc.setLineWidth(1)
   doc.line(margin, y, pageW - margin, y)
-  y += 8
+  y += 24
 
   songs.forEach((song, i) => {
-    // Check page space
-    if (y > 260) {
-      doc.addPage()
-      y = 20
-    }
+    checkPage(100)
 
-    // Song number + title
+    // ── Song title + type badge ──
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(13)
+    doc.setFontSize(PT.songTitle)
     doc.setTextColor(36, 30, 22)
     doc.text(`${i + 1}. ${song.title}`, margin, y)
 
-    // Type badge
     const badgeColor = song.type === 'praise' ? [232, 93, 53] : [91, 140, 222]
     doc.setFillColor(...badgeColor)
     doc.setTextColor(255, 255, 255)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7)
+    doc.setFontSize(PT.label)
     const badgeText = song.type.toUpperCase()
-    const bW = doc.getTextWidth(badgeText) + 4
-    doc.roundedRect(pageW - margin - bW, y - 5, bW, 5.5, 1, 1, 'F')
-    doc.text(badgeText, pageW - margin - bW + 2, y - 0.5)
+    const bW = doc.getTextWidth(badgeText) + 12
+    doc.roundedRect(pageW - margin - bW, y - PT.label, bW, PT.label + 6, 4, 4, 'F')
+    doc.text(badgeText, pageW - margin - bW + 6, y - 1)
     doc.setTextColor(36, 30, 22)
-    y += 5
+    y += PT.songTitle * 0.6 + 4
 
     // Artist
     if (song.artist) {
       doc.setFont('helvetica', 'italic')
-      doc.setFontSize(9)
-      doc.setTextColor(100, 80, 60)
+      doc.setFontSize(PT.artist)
+      doc.setTextColor(100, 82, 64)
       doc.text(song.artist, margin, y)
-      y += 5
+      y += PT.artist * 0.7 + 4
     }
 
     // Key info
     if (song.originalKey) {
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      doc.setTextColor(80, 80, 80)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(PT.body)
+      doc.setTextColor(60, 50, 40)
       let keyText = `Key: ${song.originalKey}`
       if (song.performKey && song.performKey !== song.originalKey) {
-        keyText += `  →  Perform in: ${song.performKey}  ⚠ KEY CHANGE`
+        keyText += `   →   Perform in: ${song.performKey}`
+        doc.text(keyText, margin, y)
+        // KEY CHANGE label
+        doc.setFillColor(255, 237, 180)
+        doc.setTextColor(180, 120, 0)
+        doc.setFontSize(PT.label)
+        const kW = doc.getTextWidth('⚠ KEY CHANGE') + 10
+        doc.roundedRect(margin + doc.getTextWidth(keyText) + 10, y - PT.label + 2, kW, PT.label + 4, 3, 3, 'F')
+        doc.text('⚠ KEY CHANGE', margin + doc.getTextWidth(keyText) + 15, y + 1)
+      } else {
+        doc.text(keyText, margin, y)
       }
-      doc.text(keyText, margin, y)
-      y += 5
+      doc.setTextColor(36, 30, 22)
+      y += PT.body * 0.7 + 4
     }
 
-    // Tempo / Time
+    // Tempo / time sig
     const meta = []
     if (song.tempo) meta.push(`♩ ${song.tempo} BPM`)
-    if (song.timeSignature) meta.push(`${song.timeSignature}`)
+    if (song.timeSignature) meta.push(song.timeSignature)
     if (meta.length) {
-      doc.setFontSize(8)
-      doc.setTextColor(100, 80, 60)
-      doc.text(meta.join('   '), margin, y)
-      y += 5
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(PT.body)
+      doc.setTextColor(100, 82, 64)
+      doc.text(meta.join('     '), margin, y)
+      y += PT.body * 0.7 + 4
     }
 
     // Chords
     if (song.chords) {
+      checkPage(40)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(PT.label)
+      doc.setTextColor(130, 110, 90)
+      doc.text('CHORDS', margin, y)
+      y += PT.label * 0.7 + 6
+
       doc.setFont('courier', 'normal')
-      doc.setFontSize(8)
-      doc.setTextColor(40, 40, 40)
-      const chordLines = song.chords.split('\n').slice(0, 8)
+      doc.setFontSize(PT.mono)
+      doc.setTextColor(40, 32, 24)
+      const chordLines = song.chords.split('\n')
       chordLines.forEach(line => {
-        if (y > 270) { doc.addPage(); y = 20 }
-        doc.text(line, margin, y)
-        y += 4
+        checkPage(PT.mono * 1.4)
+        const wrapped = doc.splitTextToSize(line || ' ', contentW)
+        wrapped.forEach(l => {
+          doc.text(l, margin, y)
+          y += PT.mono * 1.3
+        })
       })
-      if (song.chords.split('\n').length > 8) {
-        doc.text('...', margin, y)
-        y += 4
-      }
+      y += 4
     }
 
     // Progressions
-    if (song.progressions && song.progressions.length > 0) {
-      if (y > 265) { doc.addPage(); y = 20 }
+    if (song.progressions?.length > 0) {
+      checkPage(40)
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(8)
-      doc.setTextColor(60, 60, 60)
-      doc.text('PROGRESSIONS', margin, y)
-      y += 4
+      doc.setFontSize(PT.label)
+      doc.setTextColor(130, 110, 90)
+      doc.text('NUMBER SYSTEM / PROGRESSIONS', margin, y)
+      y += PT.label * 0.7 + 6
+
       song.progressions.forEach(prog => {
-        if (y > 270) { doc.addPage(); y = 20 }
+        checkPage(PT.body * 1.6)
         doc.setFont('courier', 'normal')
-        doc.setFontSize(8)
-        doc.setTextColor(40, 40, 40)
-        doc.text(`${prog.label ? prog.label + ': ' : ''}${prog.pattern}`, margin, y)
-        y += 4
+        doc.setFontSize(PT.body)
+        doc.setTextColor(40, 32, 24)
+        const label = prog.label ? `${prog.label}: ` : ''
+        doc.setFont('courier', 'bold')
+        doc.text(label, margin, y)
+        doc.setFont('courier', 'normal')
+        doc.text(prog.pattern, margin + doc.getTextWidth(label), y)
+        y += PT.body * 1.3
       })
+      y += 4
     }
 
     // Notes
     if (song.notes) {
-      if (y > 265) { doc.addPage(); y = 20 }
+      checkPage(40)
       doc.setFont('helvetica', 'italic')
-      doc.setFontSize(8)
+      doc.setFontSize(PT.body)
       doc.setTextColor(100, 80, 60)
-      const noteLines = doc.splitTextToSize(`Notes: ${song.notes}`, pageW - margin * 2)
+      const noteLines = doc.splitTextToSize(`Notes: ${song.notes}`, contentW)
       noteLines.forEach(line => {
-        if (y > 270) { doc.addPage(); y = 20 }
+        checkPage(PT.body * 1.4)
         doc.text(line, margin, y)
-        y += 4
+        y += PT.body * 1.3
       })
+      y += 4
     }
 
-    // Media links
+    // Links
     const links = [...(song.youtubeLinks || []), ...(song.spotifyLinks || [])]
-    if (links.length > 0) {
-      if (y > 265) { doc.addPage(); y = 20 }
+    if (links.length) {
+      checkPage(30)
       doc.setFont('helvetica', 'normal')
-      doc.setFontSize(8)
-      doc.setTextColor(60, 100, 180)
+      doc.setFontSize(PT.body)
       links.forEach(link => {
-        if (y > 270) { doc.addPage(); y = 20 }
+        checkPage(PT.body * 1.6)
+        doc.setTextColor(51, 102, 187)
         doc.textWithLink(`▶ ${link.label || link.url}`, margin, y, { url: link.url })
-        y += 4
+        y += PT.body * 1.4
       })
     }
 
-    y += 6
-    // Separator
-    doc.setDrawColor(220, 200, 170)
-    doc.setLineWidth(0.2)
+    y += 12
+    checkPage(20)
+    doc.setDrawColor(220, 205, 185)
+    doc.setLineWidth(0.5)
     doc.line(margin, y, pageW - margin, y)
-    y += 6
+    y += 20
   })
 
   doc.save(`${setTitle.replace(/\s+/g, '_')}.pdf`)
@@ -172,81 +215,84 @@ export function exportToXLS(songs, setTitle = 'Worship Set') {
     Type: song.type,
     'Original Key': song.originalKey || '',
     'Perform Key': song.performKey || '',
-    'Key Changed': song.performKey && song.performKey !== song.originalKey ? 'YES' : '',
+    'Key Changed': song.performKey && song.performKey !== song.originalKey ? 'YES ⚠' : '',
     'Tempo (BPM)': song.tempo || '',
-    'Time Signature': song.timeSignature || '',
+    'Time Sig': song.timeSignature || '',
     Chords: song.chords || '',
     Progressions: (song.progressions || []).map(p => `${p.label ? p.label + ': ' : ''}${p.pattern}`).join(' | '),
     Notes: song.notes || '',
-    'YouTube Links': (song.youtubeLinks || []).map(l => l.url).join('\n'),
-    'Spotify Links': (song.spotifyLinks || []).map(l => l.url).join('\n'),
+    'YouTube': (song.youtubeLinks || []).map(l => l.url).join('\n'),
+    'Spotify': (song.spotifyLinks || []).map(l => l.url).join('\n'),
   }))
 
   const ws = XLSX.utils.json_to_sheet(rows)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Songs')
 
-  // Column widths
   ws['!cols'] = [
-    { wch: 4 }, { wch: 30 }, { wch: 20 }, { wch: 10 }, { wch: 12 },
-    { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 40 },
-    { wch: 30 }, { wch: 30 }, { wch: 35 }, { wch: 35 },
+    { wch: 4 }, { wch: 28 }, { wch: 20 }, { wch: 10 }, { wch: 12 },
+    { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 40 },
+    { wch: 30 }, { wch: 35 }, { wch: 35 }, { wch: 35 },
   ]
 
   XLSX.writeFile(wb, `${setTitle.replace(/\s+/g, '_')}.xlsx`)
 }
 
 // ─── DOCX Export ──────────────────────────────────────────────
+// DOCX half-points: 1pt = 2 half-points. Min 16pt = size 32.
+const DOCX_PT = {
+  title:     52,  // 26pt
+  songTitle: 40,  // 20pt
+  artist:    34,  // 17pt
+  body:      32,  // 16pt  ← minimum readable
+  label:     28,  // 14pt
+  mono:      30,  // 15pt
+}
+
 export async function exportToDOCX(songs, setTitle = 'Worship Set') {
   const children = []
 
-  // Title
+  // Set title
   children.push(
     new Paragraph({
-      text: setTitle,
-      heading: HeadingLevel.HEADING_1,
-      spacing: { after: 200 },
+      children: [new TextRun({ text: setTitle, bold: true, size: DOCX_PT.title, font: 'DM Sans' })],
+      spacing: { after: 160 },
     }),
     new Paragraph({
-      children: [
-        new TextRun({
-          text: `Generated ${new Date().toLocaleDateString('en-PH', { dateStyle: 'long' })}  •  ${songs.length} songs`,
-          color: '886644',
-          size: 18,
-          italics: true,
-        }),
-      ],
-      spacing: { after: 400 },
+      children: [new TextRun({
+        text: `Generated ${new Date().toLocaleDateString('en-PH', { dateStyle: 'long' })}  •  ${songs.length} songs`,
+        color: '886644', size: DOCX_PT.body, italics: true, font: 'Calibri',
+      })],
+      spacing: { after: 360 },
     })
   )
 
   songs.forEach((song, i) => {
     // Song title
-    children.push(
-      new Paragraph({
-        children: [
-          new TextRun({ text: `${i + 1}. ${song.title}`, bold: true, size: 26 }),
-          new TextRun({ text: `  [${song.type.toUpperCase()}]`, color: song.type === 'praise' ? 'e85d35' : '5b8cde', size: 20, bold: true }),
-        ],
-        spacing: { before: 300, after: 60 },
-      })
-    )
+    children.push(new Paragraph({
+      children: [
+        new TextRun({ text: `${i + 1}. ${song.title}`, bold: true, size: DOCX_PT.songTitle, font: 'DM Sans' }),
+        new TextRun({ text: `  [${song.type.toUpperCase()}]`, bold: true, size: DOCX_PT.label, font: 'DM Sans', color: song.type === 'praise' ? 'e85d35' : '5b8cde' }),
+      ],
+      spacing: { before: 360, after: 80 },
+    }))
 
-    if (song.artist) {
-      children.push(new Paragraph({
-        children: [new TextRun({ text: song.artist, italics: true, color: '664422', size: 20 })],
-        spacing: { after: 80 },
-      }))
-    }
+    if (song.artist) children.push(new Paragraph({
+      children: [new TextRun({ text: song.artist, italics: true, size: DOCX_PT.artist, color: '664422', font: 'Calibri' })],
+      spacing: { after: 80 },
+    }))
 
     // Key
     if (song.originalKey) {
-      let keyStr = `Key: ${song.originalKey}`
-      if (song.performKey && song.performKey !== song.originalKey) {
-        keyStr += `  →  Perform in: ${song.performKey}  ⚠ KEY CHANGE`
-      }
+      const keyChanged = song.performKey && song.performKey !== song.originalKey
       children.push(new Paragraph({
-        children: [new TextRun({ text: keyStr, size: 18, color: '443322', bold: true })],
+        children: [
+          new TextRun({ text: `Key: ${song.originalKey}`, bold: true, size: DOCX_PT.body, font: 'Calibri' }),
+          ...(keyChanged ? [
+            new TextRun({ text: `   →   Perform in: ${song.performKey}`, bold: true, size: DOCX_PT.body, font: 'Calibri' }),
+            new TextRun({ text: '   ⚠ KEY CHANGE', bold: true, size: DOCX_PT.body, color: 'b45300', font: 'Calibri' }),
+          ] : []),
+        ],
         spacing: { after: 80 },
       }))
     }
@@ -255,71 +301,61 @@ export async function exportToDOCX(songs, setTitle = 'Worship Set') {
     const meta = []
     if (song.tempo) meta.push(`♩ ${song.tempo} BPM`)
     if (song.timeSignature) meta.push(song.timeSignature)
-    if (meta.length) {
-      children.push(new Paragraph({
-        children: [new TextRun({ text: meta.join('   '), size: 18, color: '664422' })],
-        spacing: { after: 80 },
-      }))
-    }
+    if (meta.length) children.push(new Paragraph({
+      children: [new TextRun({ text: meta.join('     '), size: DOCX_PT.body, color: '664422', font: 'Calibri' })],
+      spacing: { after: 120 },
+    }))
 
     // Chords
     if (song.chords) {
       children.push(new Paragraph({
-        children: [new TextRun({ text: 'CHORDS', bold: true, size: 16, color: '443322' })],
-        spacing: { after: 40 },
+        children: [new TextRun({ text: 'CHORDS', bold: true, size: DOCX_PT.label, color: '9c8866', font: 'Calibri' })],
+        spacing: { before: 120, after: 60 },
       }))
       song.chords.split('\n').forEach(line => {
         children.push(new Paragraph({
-          children: [new TextRun({ text: line || ' ', font: 'Courier New', size: 18 })],
-          spacing: { after: 20 },
+          children: [new TextRun({ text: line || ' ', font: 'Courier New', size: DOCX_PT.mono })],
+          spacing: { after: 40 },
         }))
       })
     }
 
     // Progressions
-    if (song.progressions && song.progressions.length > 0) {
+    if (song.progressions?.length > 0) {
       children.push(new Paragraph({
-        children: [new TextRun({ text: 'PROGRESSIONS', bold: true, size: 16, color: '443322' })],
-        spacing: { before: 100, after: 40 },
+        children: [new TextRun({ text: 'NUMBER SYSTEM / PROGRESSIONS', bold: true, size: DOCX_PT.label, color: '9c8866', font: 'Calibri' })],
+        spacing: { before: 160, after: 60 },
       }))
       song.progressions.forEach(prog => {
         children.push(new Paragraph({
           children: [
-            new TextRun({ text: prog.label ? `${prog.label}: ` : '', bold: true, font: 'Courier New', size: 18 }),
-            new TextRun({ text: prog.pattern, font: 'Courier New', size: 18 }),
+            new TextRun({ text: prog.label ? `${prog.label}: ` : '', bold: true, font: 'Courier New', size: DOCX_PT.mono }),
+            new TextRun({ text: prog.pattern, font: 'Courier New', size: DOCX_PT.mono }),
           ],
-          spacing: { after: 40 },
+          spacing: { after: 60 },
         }))
       })
     }
 
     // Notes
-    if (song.notes) {
-      children.push(new Paragraph({
-        children: [new TextRun({ text: `Notes: ${song.notes}`, italics: true, size: 18, color: '664422' })],
-        spacing: { before: 100, after: 40 },
-      }))
-    }
+    if (song.notes) children.push(new Paragraph({
+      children: [new TextRun({ text: `Notes: ${song.notes}`, italics: true, size: DOCX_PT.body, color: '664422', font: 'Calibri' })],
+      spacing: { before: 120, after: 80 },
+    }))
 
     // Links
     const links = [...(song.youtubeLinks || []), ...(song.spotifyLinks || [])]
-    if (links.length) {
-      links.forEach(link => {
-        children.push(new Paragraph({
-          children: [new TextRun({ text: `▶ ${link.label || link.url}`, size: 18, color: '3355aa' })],
-          spacing: { after: 40 },
-        }))
-      })
-    }
+    links.forEach(link => {
+      children.push(new Paragraph({
+        children: [new TextRun({ text: `▶ ${link.label || link.url}`, size: DOCX_PT.body, color: '3355aa', font: 'Calibri' })],
+        spacing: { after: 60 },
+      }))
+    })
 
-    // Spacer
-    children.push(new Paragraph({ text: '', spacing: { after: 200 } }))
+    children.push(new Paragraph({ text: '', spacing: { after: 280 } }))
   })
 
-  const doc = new Document({
-    sections: [{ children }],
-  })
-
+  const doc = new Document({ sections: [{ children }] })
   const blob = await Packer.toBlob(doc)
   saveAs(blob, `${setTitle.replace(/\s+/g, '_')}.docx`)
 }
